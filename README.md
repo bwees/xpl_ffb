@@ -1,6 +1,6 @@
 # Arduino FOC Force Feedback Control
 
-This is a proof of concept project to determine if a force feedback joystick can be created with stepper motors, SimpleFOC and X-Plane. This library uses XPlaneConnect from [NASA](https://github.com/nasa/XPlaneConnect). 
+This is a proof of concept project to determine if a force feedback joystick can be created with stepper motors, SimpleFOC and X-Plane. This project uses XPlaneConnect from [NASA](https://github.com/nasa/XPlaneConnect). 
 
 ### Hardware:
 - ESP8266 NodeMCU
