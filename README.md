@@ -7,4 +7,4 @@ This is a proof of concept project to determine if a force feedback joystick can
 - Stepper Motor
 - L298N Driver
 - AS5600 Encoder
-  - Do not use magnetic encoders, use mechanical encoders. This will be changes in future
+  - Do not use magnetic encoders, use mechanical encoders. This will be changed in future
