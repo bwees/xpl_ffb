@@ -10,9 +10,19 @@ MagneticSensorI2C sensor = MagneticSensorI2C(AS5600_I2C);
 
 // commander interface
 Commander command = Commander(Serial);
+PIDController target_pid = PIDController(1.f, 0,0, 10, 12);
+
 void onMotor(char* cmd){ command.motor(&motor, cmd); }
 
+float airspeed_indicated = 0;
+void airspeed(char* cmd){ 
+  command.scalar(&airspeed_indicated, cmd); 
+}
+
+
 void setup() {
+
+  command.verbose = VerboseMode::on_request;
 
   // initialize encoder sensor hardware
   sensor.init();
@@ -26,7 +36,7 @@ void setup() {
 
     // set control loop type to be used
   motor.controller = MotionControlType::torque;
-  motor.foc_modulation = FOCModulationType::SpaceVectorPWM;
+  motor.foc_modulation = FOCModulationType::SinePWM;
 
   // use monitoring with serial for motor init
   // monitoring port
@@ -44,11 +54,17 @@ void setup() {
 
   // define the motor id
   command.add('M', onMotor, "motor");
+  command.add('A', airspeed, "airspeed");
 
-  // Run user commands to configure and the motor (find the full command list in docs.simplefoc.com)
-  Serial.println(F("Motor commands sketch | Initial motion control > torque/voltage : target 2V."));
-  
+
+
+  Serial.println("READY");
   _delay(1000);
+}
+
+float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
+{
+ return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 
@@ -65,4 +81,14 @@ void loop() {
 
   // user communication
   command.run();
+
+  float pitch_cmd = mapfloat(motor.shaft_angle, -1.f, -3.f, -1.f, 1.f);
+  float relative_force = airspeed_indicated*airspeed_indicated;
+
+  float e_force = pitch_cmd*(relative_force/1000.f);
+  //Serial.println(e_force);
+
+
+  motor.target = e_force;
+
 }
