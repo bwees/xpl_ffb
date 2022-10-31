@@ -12,13 +12,16 @@ MagneticSensorI2C sensor = MagneticSensorI2C(AS5600_I2C);
 Commander command = Commander(Serial);
 PIDController target_pid = PIDController(1.f, 0,0, 10, 12);
 
+#define REDLINE 170
+#define M_VOLTAGE 12
+#define F_CONST 1.6
+
 void onMotor(char* cmd){ command.motor(&motor, cmd); }
 
 float airspeed_indicated = 0;
-void airspeed(char* cmd){ 
+void onAirspeed(char* cmd){ 
   command.scalar(&airspeed_indicated, cmd); 
 }
-
 
 void setup() {
 
@@ -54,9 +57,7 @@ void setup() {
 
   // define the motor id
   command.add('M', onMotor, "motor");
-  command.add('A', airspeed, "airspeed");
-
-
+  command.add('A', onAirspeed, "airspeed");
 
   Serial.println("READY");
   _delay(1000);
@@ -83,12 +84,14 @@ void loop() {
   command.run();
 
   float pitch_cmd = mapfloat(motor.shaft_angle, -1.f, -3.f, -1.f, 1.f);
+
   float relative_force = airspeed_indicated*airspeed_indicated;
 
-  float e_force = pitch_cmd*(relative_force/1000.f);
-  //Serial.println(e_force);
+  float e_force = pitch_cmd*(relative_force/(REDLINE*REDLINE))*M_VOLTAGE*F_CONST;
 
-
+ 
   motor.target = e_force;
+  
+
 
 }
