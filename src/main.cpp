@@ -1,97 +1,127 @@
 #include <Arduino.h>
 #include <SimpleFOC.h>
+#include <PicoGamepad.h>
 
-// Stepper motor instance
-StepperMotor motor = StepperMotor(50);
-StepperDriver4PWM driver = StepperDriver4PWM(D5, D6, D7, D8);
+PicoGamepad gamepad;
 
-// encoder instance
-MagneticSensorI2C sensor = MagneticSensorI2C(AS5600_I2C);
+MagneticSensorSPI sensor_pitch = MagneticSensorSPI(20, 14, 0x3FFF);
+MagneticSensorSPI sensor_roll = MagneticSensorSPI(21, 14, 0x3FFF);
+ 
+//Mux control pins
+int s0 = 4;
+int s1 = 3;
+int s2 = 2;
+int s3 = 7;
 
-// commander interface
-Commander command = Commander(Serial);
-PIDController target_pid = PIDController(1.f, 0,0, 10, 12);
+//Mux in "SIG" pin
+#define TOP_MUX_SIG 5
+#define BOT_MUX_SIG 6
 
-#define REDLINE 170
-#define M_VOLTAGE 12
-#define F_CONST 1.6
+void setMux(int pin);
 
-void onMotor(char* cmd){ command.motor(&motor, cmd); }
+int buttons[32];
 
-float airspeed_indicated = 0;
-void onAirspeed(char* cmd){ 
-  command.scalar(&airspeed_indicated, cmd); 
-}
+int rmin, rmax, pmin, pmax;
 
 void setup() {
-
-  command.verbose = VerboseMode::on_request;
-
-  // initialize encoder sensor hardware
-  sensor.init();
-  motor.linkSensor(&sensor);
-
-  // power supply voltage [V]
-  driver.voltage_power_supply = 12;
-  driver.init();
-  // link the motor to the sensor
-  motor.linkDriver(&driver);
-
-    // set control loop type to be used
-  motor.controller = MotionControlType::torque;
-  motor.foc_modulation = FOCModulationType::SinePWM;
-
-  // use monitoring with serial for motor init
   // monitoring port
   Serial.begin(115200);
-  // comment out if not needed
-  motor.useMonitoring(Serial);
 
-  // initialise motor
-  motor.init();
-  // align encoder and start FOC 4.39
-  motor.initFOC(5.66, Direction::CCW);
+  // initialise encoder hardware
+  sensor_pitch.init();
+  sensor_roll.init();
 
-  // set the initial target value
-  motor.target = 3;
+  Serial.println("Encoder ready");
 
-  // define the motor id
-  command.add('M', onMotor, "motor");
-  command.add('A', onAirspeed, "airspeed");
+  pinMode(s0, OUTPUT); 
+  pinMode(s1, OUTPUT); 
+  pinMode(s2, OUTPUT); 
+  pinMode(s3, OUTPUT); 
 
-  Serial.println("READY");
-  _delay(1000);
+  digitalWrite(s0, LOW);
+  digitalWrite(s1, LOW);
+  digitalWrite(s2, LOW);
+  digitalWrite(s3, LOW);
+
+  pinMode(TOP_MUX_SIG, INPUT_PULLUP);
+  pinMode(BOT_MUX_SIG, INPUT_PULLUP);
+
+  Serial.begin(9600);
+  sensor_pitch.update();
+  sensor_roll.update();
+  // display the angle and the angular velocity to the terminal
+  float p = sensor_pitch.getAngle()*100;
+  float r = sensor_roll.getAngle()*100;
+  rmin = r;
+  rmax = r;
+  pmin = p;
+  pmax = p;
 }
-
-float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
-{
- return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-}
-
 
 void loop() {
-  // iterative setting FOC phase voltage
-  motor.loopFOC();
 
-  // iterative function setting the outter loop target
-  // velocity, position or voltage
-  // if tatget not set in parameter uses motor.target variable
-  motor.move();
-  motor.monitor();
-
-
-  // user communication
-  command.run();
-
-  float pitch_cmd = mapfloat(motor.shaft_angle, -1.f, -3.f, -1.f, 1.f);
-
-  float relative_force = airspeed_indicated*airspeed_indicated;
-
-  float e_force = pitch_cmd*(relative_force/(REDLINE*REDLINE))*M_VOLTAGE*F_CONST;
-
- 
-  motor.target = e_force;
   
+  sensor_pitch.update();
+  sensor_roll.update();
+  // display the angle and the angular velocity to the terminal
+  float p = sensor_pitch.getAngle()*100;
+  float r = sensor_roll.getAngle()*100;
+
+  rmin = min(r, rmin);
+  rmax = max(r, rmax);
+  pmin = min(p, pmin);
+  pmax = max(p, pmax);
+
+  Serial.println(r);
+  //Loop through and read all 16 values
+  //Reports back Value at channel 6 is: 346
+  for(int i = 0; i < 16; i ++){
+    setMux(i);
+    buttons[i] = digitalRead(TOP_MUX_SIG);
+    buttons[i+16] = digitalRead(BOT_MUX_SIG);
+
+  }
+
+  for(int i = 0; i < 32; i++)
+  {
+    gamepad.SetButton(i, !buttons[i]);
+  }
+
+  gamepad.SetY(map(p, pmax, pmin, -32767, 32767));
+  gamepad.SetX(map(r, rmin, rmax, -32767, 32767));
+
+  gamepad.send_update();
+
+}
 
 
+
+
+void setMux(int channel){
+  int controlPin[] = {s0, s1, s2, s3};
+
+  int muxChannel[16][4]={
+    {0,0,0,0}, //channel 0
+    {1,0,0,0}, //channel 1
+    {0,1,0,0}, //channel 2
+    {1,1,0,0}, //channel 3
+    {0,0,1,0}, //channel 4
+    {1,0,1,0}, //channel 5
+    {0,1,1,0}, //channel 6
+    {1,1,1,0}, //channel 7
+    {0,0,0,1}, //channel 8
+    {1,0,0,1}, //channel 9
+    {0,1,0,1}, //channel 10
+    {1,1,0,1}, //channel 11
+    {0,0,1,1}, //channel 12
+    {1,0,1,1}, //channel 13
+    {0,1,1,1}, //channel 14
+    {1,1,1,1}  //channel 15
+  };
+
+  //loop through the 4 sig
+  for(int i = 0; i < 4; i ++){
+    digitalWrite(controlPin[i], muxChannel[channel][i]);
+  }
+  delay(1);
 }
