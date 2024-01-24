@@ -1,0 +1,3 @@
+[submodule "PicoGamepad"]
+    path = lib/PicoGamepad
+    url = https://gitlab.com/realrobots/PicoGamepad

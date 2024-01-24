@@ -4,75 +4,125 @@
 
 PicoGamepad gamepad;
 
-MagneticSensorSPI sensor_pitch = MagneticSensorSPI(20, 14, 0x3FFF);
-MagneticSensorSPI sensor_roll = MagneticSensorSPI(21, 14, 0x3FFF);
+MagneticSensorSPI pitchEncoder = MagneticSensorSPI(20, 14, 0x3FFF);
+MagneticSensorSPI rollEncoder = MagneticSensorSPI(21, 14, 0x3FFF);
  
+StepperMotor pitchMotor = StepperMotor(50, 1.5);
+StepperDriver4PWM pitchDriver = StepperDriver4PWM(10, 11, 12, 13, 26);
+
 //Mux control pins
-int s0 = 4;
-int s1 = 3;
-int s2 = 2;
-int s3 = 7;
+#define MUX_S0 4
+#define MUX_S1 3
+#define MUX_S2 2
+#define MUX_S3 7
 
 //Mux in "SIG" pin
 #define TOP_MUX_SIG 5
 #define BOT_MUX_SIG 6
 
 void setMux(int pin);
+void joystick_update();
+void init_pitch();
+void init_roll();
 
-int buttons[32];
-
-int rmin, rmax, pmin, pmax;
+float targetPitch = 0;
 
 void setup() {
   // monitoring port
   Serial.begin(115200);
 
-  // initialise encoder hardware
-  sensor_pitch.init();
-  sensor_roll.init();
+  // delay(3000);
+  SimpleFOCDebug::enable(&Serial);
+  pitchMotor.P_angle.P = 200;
+
+  init_pitch();
+  init_roll();
+
+
+
 
   Serial.println("Encoder ready");
 
-  pinMode(s0, OUTPUT); 
-  pinMode(s1, OUTPUT); 
-  pinMode(s2, OUTPUT); 
-  pinMode(s3, OUTPUT); 
+  pinMode(MUX_S0, OUTPUT); 
+  pinMode(MUX_S1, OUTPUT); 
+  pinMode(MUX_S2, OUTPUT); 
+  pinMode(MUX_S3, OUTPUT); 
 
-  digitalWrite(s0, LOW);
-  digitalWrite(s1, LOW);
-  digitalWrite(s2, LOW);
-  digitalWrite(s3, LOW);
+  digitalWrite(MUX_S0, LOW);
+  digitalWrite(MUX_S1, LOW);
+  digitalWrite(MUX_S2, LOW);
+  digitalWrite(MUX_S3, LOW);
 
   pinMode(TOP_MUX_SIG, INPUT_PULLUP);
   pinMode(BOT_MUX_SIG, INPUT_PULLUP);
-
-  Serial.begin(9600);
-  sensor_pitch.update();
-  sensor_roll.update();
-  // display the angle and the angular velocity to the terminal
-  float p = sensor_pitch.getAngle()*100;
-  float r = sensor_roll.getAngle()*100;
-  rmin = r;
-  rmax = r;
-  pmin = p;
-  pmax = p;
 }
 
 void loop() {
 
   
-  sensor_pitch.update();
-  sensor_roll.update();
+  pitchEncoder.update();
+  rollEncoder.update();
+
+  // // simple P only position control loop
+  // float error = targetPitch-pitchEncoder.getAngle()*100;
+  // pitchMotor.target = constrain(error*0.18, -15.f, 15.f);
+  pitchMotor.target = 3;
+
+  pitchMotor.loopFOC();
+  pitchMotor.move();
+
+  Serial.println(pitchMotor.target);
+
+  // joystick_update();
+
+}
+
+void init_pitch() {
+  pitchMotor.useMonitoring(Serial);
+
+    // initialise encoder hardware
+  pitchEncoder.init();
+  rollEncoder.init();
+
+  pitchMotor.linkSensor(&pitchEncoder);
+  pitchMotor.foc_modulation = FOCModulationType::SinePWM;
+
+  // power supply voltage [V]
+  pitchDriver.init();
+  // link the motor to the sensor
+  pitchMotor.linkDriver(&pitchDriver);
+
+  pitchMotor.controller = MotionControlType::torque;
+
+   // initialise motor
+  pitchMotor.init();
+  pitchDriver.voltage_power_supply = 24;
+  pitchDriver.pwm_frequency = 20000;
+  pitchMotor.voltage_limit = 6;
+  pitchMotor.current_limit = 6;
+
+  pitchMotor.zero_electric_angle = .6;
+  pitchMotor.sensor_direction = Direction::CW;
+
+  // align encoder and start FOC
+  pitchMotor.initFOC();
+
+}
+
+void init_roll() {}
+
+void joystick_update() {
+  static int buttons[32];
+  static int rmin, rmax, pmin, pmax;
+
   // display the angle and the angular velocity to the terminal
-  float p = sensor_pitch.getAngle()*100;
-  float r = sensor_roll.getAngle()*100;
+  float p = pitchEncoder.getAngle()*100;
+  float r = rollEncoder.getAngle()*100;
 
   rmin = min(r, rmin);
   rmax = max(r, rmax);
   pmin = min(p, pmin);
   pmax = max(p, pmax);
-
-  Serial.println(r);
   //Loop through and read all 16 values
   //Reports back Value at channel 6 is: 346
   for(int i = 0; i < 16; i ++){
@@ -84,21 +134,20 @@ void loop() {
 
   for(int i = 0; i < 32; i++)
   {
+    // Serial.print(!buttons[i]);
     gamepad.SetButton(i, !buttons[i]);
   }
+  // Serial.println();
 
   gamepad.SetY(map(p, pmax, pmin, -32767, 32767));
   gamepad.SetX(map(r, rmin, rmax, -32767, 32767));
 
-  gamepad.send_update();
 
+  gamepad.send_update();
 }
 
-
-
-
 void setMux(int channel){
-  int controlPin[] = {s0, s1, s2, s3};
+  int controlPin[] = {MUX_S0, MUX_S1, MUX_S2, MUX_S3};
 
   int muxChannel[16][4]={
     {0,0,0,0}, //channel 0
